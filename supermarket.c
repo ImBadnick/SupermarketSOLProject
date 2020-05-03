@@ -12,10 +12,11 @@
 
 static pthread_mutex_t acmutex= PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t * queuemutex;
-static pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t accond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t * queuecond;
 static config * cf;
 static int activecustomers=0;
-static queue * qs;
+static queue ** qs;
 
 void spawnthreads(customer * csdata, supermarketcheckout * smdata);
 
@@ -30,26 +31,35 @@ void * customerT (void *arg) {
     while (activecustomers==cf->C){
         printf("Customer %d: is waiting to enter the supermarket\n",id); //Wait if the condition is true
         fflush(stdout);
-        pthread_cond_wait(&cond,&acmutex);
+        pthread_cond_wait(&accond,&acmutex);
     }
     activecustomers++; //Customer enters the supermarket
     printf("Customer %d: joined the supermarket --> %d\n",id,activecustomers);
     fflush(stdout);
     pthread_mutex_unlock(&acmutex);
+
     //Customer's buy time
     ((customer *)arg)->nproducts=rand_r(&seed)%(cf->P); //Random number of products: 0<nproducts<=P
     while ((randomtime = rand_r(&seed) % (cf->T))<10); //Random number of buy time
     struct timespec t={(randomtime/1000),((randomtime%1000)*1000000)};
     nanosleep(&t,&t); //Sleeping randomtime mseconds
     int nqueue=rand_r(&seed) % (cf->K);
-    //joinqueue(qs[nqueue],((customer *)arg)); //After sleep, the costumer joins a queue to pay
+    
+    pthread_mutex_lock(&queuemutex[nqueue]);
+    printf("Customer %d: Entra in cassa --> %d\n",id,nqueue);
+    fflush(stdout);
+    joinqueue(&qs[nqueue],((customer *)arg)); //After sleep, the costumer joins a queue to pay
+    pthread_cond_signal(&queuecond[nqueue]);
+    pthread_cond_wait(&queuecond[nqueue],&queuemutex[nqueue]);
+    pthread_mutex_unlock(&queuemutex[nqueue]);
+    
     //After have paid the costumer leaves the supermarket
     pthread_mutex_lock(&acmutex);
     activecustomers--; 
     printf("Customer %d: leaved the supermarket --> %d\n",id,activecustomers);
     fflush(stdout);
     //If number of customers is equal to C-E ==> wake up E customers and let them enter the supermarket
-    if (activecustomers==(cf->C-cf->E)) for(int i=0;i<3;i++) pthread_cond_signal(&cond);
+    if (activecustomers==(cf->C-cf->E)) for(int i=0;i<3;i++) pthread_cond_signal(&accond);
     pthread_mutex_unlock(&acmutex);
     
     return NULL; 
@@ -57,7 +67,22 @@ void * customerT (void *arg) {
 
 void * smcheckout(void *arg) {
     int id = ((supermarketcheckout*)arg)->id;
-    //printf("sm id: %d \n",id);
+    unsigned int seed=((customer*)arg)->id; //Creating seed
+    long randomtime;
+    while(1){
+    pthread_mutex_lock(&queuemutex[id-1]);
+    while(queuelength(qs[id-1])==0) pthread_cond_wait(&queuecond[id-1],&queuemutex[id-1]);
+    while ((randomtime = rand_r(&seed) % 80)<20); //Random number of time interval: 20-80
+    pthread_mutex_unlock(&queuemutex[id-1]);
+    randomtime=randomtime*cf->S;
+    struct timespec t={(randomtime/1000),((randomtime%1000)*1000000)};
+    nanosleep(&t,&t); //Sleeping randomtime mseconds
+    pthread_mutex_lock(&queuemutex[id-1]);
+    pthread_cond_signal(&queuecond[id-1]);
+    queue *qcs=removecustomer(&qs[id-1]);
+    pthread_mutex_unlock(&queuemutex[id-1]);
+    if (activecustomers==0) break;
+    }
 }
 
 void * directorT() {
@@ -85,17 +110,38 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
-    // qs=malloc(cf->K*sizeof(queue));
-    // for (int i=0;i<cf->K; i++) qs[i]=createqueues();
+    //Creating queues for the K supermarket checkouts
+    if ((qs=(queue**) malloc((cf->K)*sizeof(queue*)))==NULL) {
+        fprintf(stderr, "malloc failed\n");
+        exit(EXIT_FAILURE);  
+    }
+    for (int i=0;i<cf->K; i++) qs[i]=createqueues(); 
 
-    // queuemutex=malloc(cf->K*sizeof(pthread_mutex_t));
-    // for (int i=0;i<cf->K;i++){
-    //     if (pthread_mutex_init(&queuemutex[i], NULL) != 0) {
-    //         fprintf(stderr, "pthread_mutex_init queue fallita\n");
-    //         exit(EXIT_FAILURE);                   
-    //     }
-    // }
+    //Creating the mutex for the queues
+    if((queuemutex=malloc(cf->K*sizeof(pthread_mutex_t)))==NULL){
+        fprintf(stderr, "malloc failed\n");
+        exit(EXIT_FAILURE);  
+    }
+    for (int i=0;i<cf->K;i++){
+        if (pthread_mutex_init(&queuemutex[i], NULL) != 0) {
+            fprintf(stderr, "pthread_mutex_init queue failed\n");
+            exit(EXIT_FAILURE);                   
+        }
+    }
 
+    //Creating the condition variable for the K queues
+    if((queuecond=malloc(cf->K*sizeof(pthread_cond_t)))==NULL){
+        fprintf(stderr, "malloc failed\n");
+        exit(EXIT_FAILURE); 
+    }
+    for (int i=0;i<cf->K;i++){
+        if (pthread_cond_init(&queuecond[i], NULL) != 0) {
+            fprintf(stderr, "pthread_cond_init queue failed\n");
+            exit(EXIT_FAILURE);                   
+        }
+    }
+
+    //Creating the "container" for customer and supermarket checkouts
     csdata = malloc(cf->numcustomers*sizeof(customer));
     smdata = malloc(cf->K*sizeof(supermarketcheckout));
 
@@ -104,8 +150,8 @@ int main(int argc, char const *argv[])
 	    exit(EXIT_FAILURE);
     }
 
+    //Spawing threads
     spawnthreads(csdata, smdata);
-
 
 
 
