@@ -1,28 +1,30 @@
 typedef struct queue {
     customer * cs;
-    pthread_mutex_t list_mutex;
+    struct queue *next;
 }queue;
-
 
 queue * createqueues() {
        struct queue * q = NULL;
        return q;
  }
 
-void joinqueue(queue ** qs,customer * cs) {
-    queue * q = malloc(sizeof(queue));
+int joinqueue(queue ** qs,customer * cs) {
+    queue * q;
+    if((q=malloc(sizeof(queue)))==NULL){
+        return -1;
+    }
     q->cs=cs;
     q->next=NULL;
     queue * curr = (*qs);
     if ((*qs)==NULL){
         (*qs)=q;
-        return;
+        return 1;
     }
 
     while(curr->next!=NULL) curr=curr->next;
     curr->next = q;
     q->next=NULL;
-    
+    return 1;
 }
 
 queue * removecustomer(queue **qs) {
