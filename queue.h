@@ -1,23 +1,31 @@
 typedef struct queue {
-    customer * cs;
-    struct queue *next;
+    struct queuenode *head;
+    int queueopen;
 }queue;
 
-queue * createqueues() {
-       struct queue * q = NULL;
+typedef struct queuenode{
+    customer *cs;
+    struct queuenode *next;
+}queuenode;
+
+queue * createqueues(int id) {
+       struct queue * q = malloc(sizeof(queue));
+       q->head=NULL;
+       if (id==0) q->queueopen=1;
+       else q->queueopen=0;
        return q;
  }
 
 int joinqueue(queue ** qs,customer * cs) {
-    queue * q;
-    if((q=malloc(sizeof(queue)))==NULL){
+    queuenode * q;
+    if((q=malloc(sizeof(queuenode)))==NULL){
         return -1;
     }
     q->cs=cs;
     q->next=NULL;
-    queue * curr = (*qs);
-    if ((*qs)==NULL){
-        (*qs)=q;
+    queuenode * curr = (*qs)->head;
+    if ((*qs)->head==NULL){
+        (*qs)->head=q;
         return 1;
     }
 
@@ -27,24 +35,14 @@ int joinqueue(queue ** qs,customer * cs) {
     return 1;
 }
 
-queue * removecustomer(queue **qs) {
-    queue * q = (*qs);
-    (*qs)=(*qs)->next;
+queuenode * removecustomer(queue **qs) {
+    queuenode * q = (*qs)->head;
+    (*qs)->head=((*qs)->head)->next;
     return q;
 }
 
 int queuelength(queue *qs) {
-    queue *curr=qs;
-    int counter=0;
-    while(curr!=NULL){
-        counter++;
-        curr=curr->next;
-    }
-    return counter;
-}
-
-int queuesearch(queue *qs) {
-    queue *curr=qs;
+    queuenode *curr=qs->head;
     int counter=0;
     while(curr!=NULL){
         counter++;

@@ -14,13 +14,23 @@
 static pthread_mutex_t acmutex= PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t accond = PTHREAD_COND_INITIALIZER;
 //Queue control
-static pthread_mutex_t * queuemutex;
-static pthread_cond_t * queuecond;
-static pthread_cond_t * smcond;
+static pthread_mutex_t * queuemutex; //Lock on queues
+static pthread_cond_t * queuecond; //Condition variable on queues
+static pthread_cond_t * smcond; //Used to wake up a cashier when there is some one in queue
+
+//DirectorOK 
+static pthread_mutex_t okmutex = PTHREAD_MUTEX_INITIALIZER; //Lock on queues
+static pthread_cond_t okcond = PTHREAD_COND_INITIALIZER; //Condition variable on queues
+
+//DirectorQueues
+static pthread_mutex_t qsactivemutex= PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t qsactivecond = PTHREAD_COND_INITIALIZER;
 
 static config * cf; //Program configuration
 static int activecustomers=0;//Number of active customers in the supermarket
 static queue ** qs; //Queues
+static int * qslength;
+static int exitok=0;
 
 void spawnthreads(customer * csdata, supermarketcheckout * smdata);
 void CreateQueueManagement();
@@ -30,6 +40,8 @@ void * customerT (void *arg) {
     int id = ((customer *)arg)->id; //ID CUSTOMER
     unsigned int seed=((customer*)arg)->id; //Creating seed
     long randomtime;
+    int nqueue;
+    int check=-1;
 
     pthread_mutex_lock(&acmutex); 
     //Testing if the number of customers in the supermarket is == then C
@@ -45,12 +57,18 @@ void * customerT (void *arg) {
 
     //Customer's buy time
     ((customer *)arg)->nproducts=rand_r(&seed)%(cf->P); //Random number of products: 0<nproducts<=P
+    if ((((customer *)arg)->nproducts)!=0){
     while ((randomtime = rand_r(&seed) % (cf->T))<10); //Random number of buy time
     struct timespec t={(randomtime/1000),((randomtime%1000)*1000000)};
-    nanosleep(&t,&t); //Sleeping randomtime mseconds
-    int nqueue=rand_r(&seed) % (cf->K);
-    
+    nanosleep(&t,NULL); //Sleeping randomtime mseconds
+
     //Customer join the queue and waits until has done
+    do {
+        nqueue=rand_r(&seed) % (cf->K);
+        pthread_mutex_lock(&queuemutex[nqueue]);
+        if (qs[nqueue]->queueopen!=0) check=0;
+        pthread_mutex_unlock(&queuemutex[nqueue]);
+    }while(check==-1);
     pthread_mutex_lock(&queuemutex[nqueue]);
     printf("Customer %d: Entra in cassa --> %d\n",id,nqueue);
     fflush(stdout);
@@ -69,8 +87,21 @@ void * customerT (void *arg) {
     fflush(stdout);
     //If number of customers is equal to C-E ==> wake up E customers and let them enter the supermarket
     if (activecustomers==(cf->C-cf->E)) for(int i=0;i<3;i++) pthread_cond_signal(&accond);
-    pthread_mutex_unlock(&acmutex);
-    
+    pthread_mutex_unlock(&acmutex); 
+    }
+    // else {
+    //     pthread_mutex_lock(&okmutex); 
+    //     exitok=2;
+    //     while(exitok!=1) pthread_cond_wait(&okcond,&okmutex);
+    //     exitok=0;
+    //     pthread_mutex_unlock(&okmutex); 
+    //     pthread_mutex_lock(&acmutex);
+    //     activecustomers--;
+    //     printf("Customer %d: leaved the supermarket with 0 items bought --> %d\n",id,activecustomers);
+    //     fflush(stdout);
+    //     if (activecustomers==(cf->C-cf->E)) for(int i=0;i<3;i++) pthread_cond_signal(&accond);
+    //     pthread_mutex_unlock(&acmutex);
+    // }
     return NULL; 
 }
 
@@ -80,29 +111,72 @@ void * smcheckout(void *arg) {
     long randomtime;
     while(1){
     pthread_mutex_lock(&queuemutex[id-1]);
-    while(queuelength(qs[id-1])==0) pthread_cond_wait(&smcond[id-1],&queuemutex[id-1]); //Wait until the queue is empty
-    queue *qcs=removecustomer(&qs[id-1]); //Serve the customer that is the first in the queue
+    while(queuelength(qs[id-1])==0) { printf("Cashier %d: Waiting customers\n",id-1); fflush(stdout); pthread_cond_wait(&smcond[id-1],&queuemutex[id-1]);} //Wait until the queue is empty
+    queuenode *qcs=removecustomer(&qs[id-1]); //Serves the customer that is the first in the queue
+    printf("Cashier %d: Serving customer: %d\n",(id-1),(qcs->cs)->id);
+    fflush(stdout);
+    
+    pthread_mutex_lock(&qsactivemutex);
+    qslength[id-1]=queuelength(qs[id-1]);
+    if(qslength[id-1]>=cf->max && id!=cf->K) if(qs[id]->queueopen==0) pthread_cond_signal(&qsactivecond);
+    pthread_mutex_unlock(&qsactivemutex);
+
     pthread_mutex_unlock(&queuemutex[id-1]);
 
     //Number of time to scan the product and let the customer pay
     while ((randomtime = rand_r(&seed) % 80)<20); //Random number of time interval: 20-80
     randomtime=randomtime*cf->S;
     struct timespec t={(randomtime/1000),((randomtime%1000)*1000000)};
-    nanosleep(&t,&t); //Sleeping randomtime mseconds
+    nanosleep(&t,NULL); //Sleeping randomtime mseconds
 
     //Signal to the customer that the cashier has done
     pthread_mutex_lock(&queuemutex[id-1]);
+    printf("Customer %d has paid!\n",(qcs->cs)->id);
+    fflush(stdout);
     (qcs->cs)->queuedone=1;
     pthread_cond_signal(&queuecond[id-1]);
     pthread_mutex_unlock(&queuemutex[id-1]);
-    if(activecustomers==0) break;
     }
 
     return NULL;
 }
 
 void * directorT() {
-    //printf("DIRECTOR\n");
+    int index;
+    int check;
+    while(1){
+    check=0;
+    pthread_mutex_lock(&qsactivemutex);
+    //pthread_mutex_lock(&okmutex);
+    while(check==0 /*|| exitok==2 */) {
+        pthread_cond_wait(&qsactivecond,&qsactivemutex);
+        for (int i=0;i<(cf->K-1);i++){
+            pthread_mutex_lock(&queuemutex[i]);
+            printf("qslength %d:%d",i,qslength[i]);
+            if(qslength[i]>cf->max && qs[i+1]->queueopen==0) { 
+                check++; index=i+1;
+            }
+            pthread_mutex_unlock(&queuemutex[i]);
+            printf("\n");
+        }
+    }
+    // if (exitok==2) { exitok=1;pthread_cond_signal(&okcond);}
+    // pthread_mutex_unlock(&okmutex);
+    
+    if (check!=0)
+    {
+        printf("----------------ATTENZIONE: CASSA %d APERTA-------------------\n",index);
+        fflush(stdout);
+        pthread_mutex_lock(&queuemutex[index-1]);
+        if (index<cf->K) qs[index]->queueopen=1;
+        pthread_mutex_unlock(&queuemutex[index-1]);
+        pthread_mutex_unlock(&qsactivemutex);
+    }
+
+    
+    //if (activecustomers==0) break;
+    }
+
 }
 
 int main(int argc, char const *argv[])
@@ -176,14 +250,6 @@ void spawnthreads(customer * csdata, supermarketcheckout * smdata ){
             exit(EXIT_FAILURE);
     }
 
-    for (int i=0;i<numCustomers;i++) {
-        setupcs(&csdata[i],i);
-        if (pthread_create(&cs[i],NULL,customerT,&csdata[i])!=0) {
-            fprintf(stderr,"customer %d: thread creation, failed!",i);
-            exit(EXIT_FAILURE);
-        }
-    }
-
     for (int i=0;i<NumSMcheckouts;i++){
         setupsm(&smdata[i],i);
         if (pthread_create(&smchecks[i],NULL,smcheckout,&smdata[i])!=0) {
@@ -192,10 +258,18 @@ void spawnthreads(customer * csdata, supermarketcheckout * smdata ){
         }
     }
 
+    for (int i=0;i<numCustomers;i++) {
+        setupcs(&csdata[i],i);
+        if (pthread_create(&cs[i],NULL,customerT,&csdata[i])!=0) {
+            fprintf(stderr,"customer %d: thread creation, failed!",i);
+            exit(EXIT_FAILURE);
+        }
+    }
+
     if (pthread_join(director,NULL) == -1 ) {
             fprintf(stderr,"Director thread join, failed!");
         }
-
+        
     for (int i=0;i<numCustomers;i++) {
         if (pthread_join(cs[i],NULL) == -1 ) {
             fprintf(stderr,"customer %d: thread join, failed!",i);
@@ -219,7 +293,7 @@ void CreateQueueManagement(){
         fprintf(stderr, "malloc failed\n");
         exit(EXIT_FAILURE);  
     }
-    for (int i=0;i<cf->K; i++) qs[i]=createqueues(); 
+    for (int i=0;i<cf->K; i++) qs[i]=createqueues(i); 
 
     //Creating the mutex for the queues
     if((queuemutex=malloc(cf->K*sizeof(pthread_mutex_t)))==NULL){
@@ -255,4 +329,10 @@ void CreateQueueManagement(){
             exit(EXIT_FAILURE);                   
         }
     }
+
+    if ((qslength=malloc((cf->K)*sizeof(int)))==NULL) {
+        fprintf(stderr, "malloc failed\n");
+        exit(EXIT_FAILURE);  
+    }
+    for (int i=0;i<cf->K;i++) qslength[i]=queuelength(qs[i]);
 }
