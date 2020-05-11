@@ -17,5 +17,5 @@ void setupcs(customer * cs, int i) {
 
 
 void printcs(customer cs) {
-    printf("%d %d %d %d\n",cs.id,cs.nproducts,cs.time,cs.timeq);
+    printf("%d %d %d %d %d\n",cs.id,cs.nproducts,cs.time,cs.timeq,cs.queuedone);
 }

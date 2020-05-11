@@ -11,8 +11,7 @@ typedef struct queuenode{
 queue * createqueues(int id) {
        struct queue * q = malloc(sizeof(queue));
        q->head=NULL;
-       if (id==0) q->queueopen=1;
-       else q->queueopen=0;
+       q->queueopen=0;
        return q;
  }
 
