@@ -3,7 +3,7 @@ typedef struct supermarketcheckout {
     int nproducts;
     int ncustomers;
     int time;
-    int servicetime;
+    float servicetime;
     int nclosure;
 }supermarketcheckout;
 
@@ -13,11 +13,11 @@ void setupsm(supermarketcheckout * sm, int i) {
     sm->nproducts=0;
     sm->ncustomers=0;
     sm->time=0;
-    sm->servicetime=0;
+    sm->servicetime=1;
     sm->nclosure=0;   
 }
 
 
 void printsm(supermarketcheckout sm) {
-    printf("%d %d %d %d %d %d\n",sm.id,sm.nproducts,sm.ncustomers,sm.time,sm.servicetime,sm.nclosure);
+    printf("%d %d %d %d %f %d\n",sm.id,sm.nproducts,sm.ncustomers,sm.time,sm.servicetime,sm.nclosure);
 }

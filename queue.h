@@ -30,13 +30,13 @@ int joinqueue(queue ** qs,customer ** cs,int nqueue) {
         (*qs)->head=q;
         return 1;
     }
+    //printcs(**cs);
     while(curr->next!=NULL) curr=curr->next;
     curr->next = q;
-    q->next=NULL;
     return 1;
 }
 
-customer * removecustomer(queue **qs) {
+customer * removecustomer(queue **qs,int nqueue) {
     queuenode * q = (*qs)->head;
     (*qs)->head=((*qs)->head)->next;    
     customer * tmp = q->cs;
@@ -44,7 +44,7 @@ customer * removecustomer(queue **qs) {
     return tmp;
 }
 
-int queuelength(queue *qs) {
+int queuelength(queue *qs,int nqueue) {
     queuenode *curr=qs->head;
     int counter=0;
     while(curr!=NULL){

@@ -3,6 +3,7 @@ typedef struct customer {
     int nproducts;
     int time;
     int timeq;
+    int queuechecked;
     int queuedone;
 }customer;
 
@@ -13,9 +14,10 @@ void setupcs(customer * cs, int i) {
     cs->time=0;
     cs->timeq=0;   
     cs->queuedone=0;
+    cs->queuechecked=0;
 }
 
 
 void printcs(customer cs) {
-    printf("%d %d %d %d %d\n",cs.id,cs.nproducts,cs.time,cs.timeq,cs.queuedone);
+    printf("%d %d %d %d %d %d \n",cs.id,cs.nproducts,cs.time,cs.timeq,cs.queuechecked,cs.queuedone);
 }
