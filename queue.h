@@ -9,7 +9,7 @@ typedef struct queuenode{
     struct queuenode *next;
 }queuenode;
 
-void printQueue(queue *qs, int id   );
+void printQueue(queue *qs, int id);
 
 queue * createqueues(int id) {
        struct queue * q = malloc(sizeof(queue));
@@ -43,6 +43,16 @@ customer * removecustomer(queue **qs,int nqueue) {
     free(q);
     return tmp;
 }
+
+void resetQueue(queue **qs,int nqueue) {
+    queuenode * q = (*qs)->head;
+    while((*qs)->head!=NULL) {
+        queuenode * q = (*qs)->head;
+        (*qs)->head=((*qs)->head)->next;
+        free(q);
+    }    
+}
+
 
 int queuelength(queue *qs,int nqueue) {
     queuenode *curr=qs->head;
