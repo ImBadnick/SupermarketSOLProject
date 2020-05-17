@@ -5,6 +5,7 @@ typedef struct customer {
     int timeq;
     int queuechecked;
     int queuedone;
+    int exitok; 
 }customer;
 
 
@@ -15,6 +16,7 @@ void setupcs(customer * cs, int i) {
     cs->timeq=0;   
     cs->queuedone=0;
     cs->queuechecked=0;
+    cs->exitok=0;
 }
 
 

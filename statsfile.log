@@ -1,0 +1,59 @@
+CUSTOMER -> | id customer:15 | n. bought products:15 | time in the supermarket: 393 | time in queue: 376 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:27 | n. bought products:55 | time in the supermarket: 1173 | time in queue: 1142 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:14 | n. bought products:61 | time in the supermarket: 1280 | time in queue: 1266 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:4 | n. bought products:7 | time in the supermarket: 1389 | time in queue: 1355 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:23 | n. bought products:84 | time in the supermarket: 2135 | time in queue: 2043 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:25 | n. bought products:44 | time in the supermarket: 2135 | time in queue: 2010 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:36 | n. bought products:79 | time in the supermarket: 2134 | time in queue: 2001 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:33 | n. bought products:38 | time in the supermarket: 2135 | time in queue: 1958 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:13 | n. bought products:31 | time in the supermarket: 2137 | time in queue: 1998 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:38 | n. bought products:15 | time in the supermarket: 2135 | time in queue: 1968 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:10 | n. bought products:14 | time in the supermarket: 2137 | time in queue: 2060 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:22 | n. bought products:27 | time in the supermarket: 2136 | time in queue: 2071 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:8 | n. bought products:2 | time in the supermarket: 2136 | time in queue: 1963 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:9 | n. bought products:60 | time in the supermarket: 2137 | time in queue: 1937 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:37 | n. bought products:9 | time in the supermarket: 2135 | time in queue: 1972 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:42 | n. bought products:85 | time in the supermarket: 2134 | time in queue: 2030 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:7 | n. bought products:97 | time in the supermarket: 2137 | time in queue: 1993 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:5 | n. bought products:37 | time in the supermarket: 2136 | time in queue: 2073 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:28 | n. bought products:85 | time in the supermarket: 2136 | time in queue: 2100 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:1 | n. bought products:66 | time in the supermarket: 2137 | time in queue: 2035 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:46 | n. bought products:32 | time in the supermarket: 2134 | time in queue: 2093 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:48 | n. bought products:92 | time in the supermarket: 2699 | time in queue: 2553 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:40 | n. bought products:98 | time in the supermarket: 2699 | time in queue: 2653 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:44 | n. bought products:45 | time in the supermarket: 2699 | time in queue: 2571 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:12 | n. bought products:49 | time in the supermarket: 2702 | time in queue: 2569 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:26 | n. bought products:50 | time in the supermarket: 2701 | time in queue: 2676 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:19 | n. bought products:38 | time in the supermarket: 2701 | time in queue: 2546 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:52 | n. bought products:39 | time in the supermarket: 1421 | time in queue: 1362 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:45 | n. bought products:27 | time in the supermarket: 2699 | time in queue: 2662 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:21 | n. bought products:97 | time in the supermarket: 2701 | time in queue: 2513 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:17 | n. bought products:26 | time in the supermarket: 2701 | time in queue: 2651 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:43 | n. bought products:91 | time in the supermarket: 2700 | time in queue: 2544 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:50 | n. bought products:3 | time in the supermarket: 2700 | time in queue: 2545 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:35 | n. bought products:97 | time in the supermarket: 2700 | time in queue: 2619 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:30 | n. bought products:45 | time in the supermarket: 2702 | time in queue: 2561 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:39 | n. bought products:68 | time in the supermarket: 2700 | time in queue: 2681 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:32 | n. bought products:32 | time in the supermarket: 3271 | time in queue: 3100 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:29 | n. bought products:91 | time in the supermarket: 3271 | time in queue: 3233 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:6 | n. bought products:43 | time in the supermarket: 3273 | time in queue: 3159 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:16 | n. bought products:20 | time in the supermarket: 3272 | time in queue: 3202 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:3 | n. bought products:2 | time in the supermarket: 3273 | time in queue: 3158 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:41 | n. bought products:80 | time in the supermarket: 3270 | time in queue: 3196 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:53 | n. bought products:93 | time in the supermarket: 1992 | time in queue: 1906 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:24 | n. bought products:38 | time in the supermarket: 3272 | time in queue: 3151 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:18 | n. bought products:8 | time in the supermarket: 3272 | time in queue: 3146 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:51 | n. bought products:9 | time in the supermarket: 1992 | time in queue: 1938 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:20 | n. bought products:67 | time in the supermarket: 3272 | time in queue: 3089 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:47 | n. bought products:86 | time in the supermarket: 3270 | time in queue: 3154 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:49 | n. bought products:22 | time in the supermarket: 3270 | time in queue: 3120 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:11 | n. bought products:20 | time in the supermarket: 3273 | time in queue: 3193 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:31 | n. bought products:50 | time in the supermarket: 3271 | time in queue: 3128 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:2 | n. bought products:96 | time in the supermarket: 3273 | time in queue: 3184 | n. queues checked: 1 | 
+CUSTOMER -> | id customer:34 | n. bought products:68 | time in the supermarket: 3271 | time in queue: 3195 | n. queues checked: 1 | 
+CASHIER -> | id:1 | n. bought products:129 | n. customers:2 | time opened: 3002 | avg service time: 1343.500000 | number of clousure:1 |
+CASHIER -> | id:2 | n. bought products:100 | n. customers:2 | time opened: 3002 | avg service time: 1058.500000 | number of clousure:1 |
+CASHIER -> | id:3 | n. bought products:153 | n. customers:3 | time opened: 3273 | avg service time: 1080.000000 | number of clousure:1 |
+CASHIER -> | id:4 | n. bought products:0 | n. customers:0 | time opened: 0 | avg service time: 0.000000 | number of clousure:0 |
+CASHIER -> | id:5 | n. bought products:0 | n. customers:0 | time opened: 0 | avg service time: 0.000000 | number of clousure:0 |
+CASHIER -> | id:6 | n. bought products:0 | n. customers:0 | time opened: 0 | avg service time: 0.000000 | number of clousure:0 |

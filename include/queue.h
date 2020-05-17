@@ -45,7 +45,7 @@ customer * removecustomer(queue **qs,int nqueue) {
 }
 
 void resetQueue(queue **qs,int nqueue) {
-    queuenode * q = (*qs)->head;
+
     while((*qs)->head!=NULL) {
         queuenode * q = (*qs)->head;
         (*qs)->head=((*qs)->head)->next;
@@ -66,7 +66,7 @@ int queuelength(queue *qs,int nqueue) {
 
 void printQueue(queue *qs, int id) {
     queuenode *curr=qs->head;
-    printf("QUEUE %d: ",id);
+    printf("QUEUE %d: ",id); fflush(stdout);
     while(curr!=NULL){
         printf("%d -> ",(*(curr->cs)).id);
         curr=curr->next;
@@ -74,3 +74,5 @@ void printQueue(queue *qs, int id) {
     printf("\n");
     fflush(stdout);
 }
+
+

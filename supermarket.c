@@ -5,16 +5,49 @@
 #include <string.h>
 #include <pthread.h>
 #include <time.h>
-#include "config.h"
-#include "customer.h"
-#include "supermarketcheckout.h"
-#include "queue.h"
+#include "./include/customer.h"
+#include "./include/queue.h"
 #include <math.h>
+#include <errno.h>
+
+#define MAX_LEN 256
+
+#ifndef DEBUG
+#define DEBUG 0
+#endif
+#define DEBUG_PRINT(x) printf x
 
 
-//Supermarket enter control
-static pthread_mutex_t acmutex= PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t accond = PTHREAD_COND_INITIALIZER;
+
+typedef struct supermarketcheckout {
+    int id;
+    int nproducts;
+    int ncustomers;
+    int time;
+    float servicetime;
+    int nclosure;
+}supermarketcheckout;
+
+void setupsm(supermarketcheckout * sm, int i);
+void printsm(supermarketcheckout sm);
+
+typedef struct config {
+    int K; //Number of supermarket checkouts
+    int C; //Number of max customers in the supermarket
+    int E; //Number of customers that need to exit before make enter other E customers
+    int T; //Min time for customers to buy
+    int P; //Number of max products for each customers
+    int S; //Seconds to do a product by the cashiers
+    int S1; //If the are S1 queues with <=1 customers -> Close one of them
+    int S2; //If the is a queue with more then S2 customers in queue -> Open another supermarket checkouts
+    int smopen; //How much sm are opened at the start of the program
+    int directornews; //Update time used from sm to send queue length to director
+}config;
+
+int confcheck(config * cf);
+config * test(const char* configfile);
+void printconf(config configvalues);
+
 //Queue control
 static pthread_mutex_t * queuemutex; //Lock on queues
 static pthread_cond_t * queuecond; //Condition variable on queues
@@ -25,10 +58,7 @@ static pthread_mutex_t * smexitmutex; //Mutex on the variable "smexit" to contro
 //DirectorOK 
 static pthread_mutex_t okmutex = PTHREAD_MUTEX_INITIALIZER; //Lock on queues
 static pthread_cond_t okcond = PTHREAD_COND_INITIALIZER; //Condition variable on queues
-
-//DirectorMutex
-static pthread_mutex_t DirectorMutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t DirectorCond = PTHREAD_COND_INITIALIZER;
+static pthread_cond_t DirectorCond = PTHREAD_COND_INITIALIZER; //Director cond
 
 //Used to syncronized the variable qslength for the queues length (Used by director to open/close the supermarket checkouts)
 static pthread_mutex_t * qslengthmutex;
@@ -39,21 +69,18 @@ static pthread_mutex_t updatelock = PTHREAD_MUTEX_INITIALIZER; //Lock on queues
 static pthread_cond_t updatecond = PTHREAD_COND_INITIALIZER; //Condition variable on queues
 static pthread_mutex_t * upvarlock;
 
-static pthread_mutex_t csexitmutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_cond_t csexitcond = PTHREAD_COND_INITIALIZER;
-
-
+//FILE MUTEX
+static pthread_mutex_t filemutex = PTHREAD_MUTEX_INITIALIZER;
 
 static config * cf; //Program configuration
 static queue ** qs; //Queues
+static queue * csexitq;
 static int * qslength; //Array that contains queue's length
 static int * smexit;
-static int * updatevariable; //Used to update the director from cashier! 
-static int exitok=0; 
-static int customerexit=0;
+static int * updatevariable; //Used to update the director from cashier!
 static int exitbroadcast=0;
 static long t; //TIME
-static int ncsexit=0;
+static FILE* statsfile;
 
 volatile sig_atomic_t sighup=0;
 volatile sig_atomic_t sigquit=0;
@@ -67,7 +94,7 @@ static void handler (int signum) {
 if (signum==1) sighup=1;
 if (signum==3) sigquit=1;
 
-printf("Ricevuto segnale %d\n",signum);
+printf("Ricevuto segnale %d\n",signum); fflush(stdout);
 }
 
 
@@ -85,15 +112,13 @@ void * clockT(void *arg) {
         pthread_mutex_lock(&smexitmutex[id]);
         if (smexit[id]==1) exittime=1;
         pthread_mutex_unlock(&smexitmutex[id]);
-        printf("%d: EXITTIME %d\n",id,exittime);
-        fflush(stdout);
-        if (exittime!=1 && sigquit==0 ) {  
-            printf("%d UPDATINGGGGGGGGGGGGGGGGGGGGGGGGGGGG \n",id);
-            fflush(stdout);
+        if(DEBUG) { DEBUG_PRINT(("%d: EXITTIME %d\n",id,exittime)); fflush(stdout); }
+        if (exittime!=1 && sigquit==0 && sighup==0 ) {  
+            if(DEBUG) { DEBUG_PRINT(("%d UPDATINGGGGGGGGGGGGGGGGGGGGGGGGGGGG \n",id)); fflush(stdout); }
             pthread_mutex_lock(&qslengthmutex[id]);
             pthread_mutex_lock(&queuemutex[id]);
             qslength[id]=queuelength(qs[id],id);
-            printf("LUNGHEZZA CASSA %d = %d\n",id,qslength[id]); 
+            if(DEBUG) DEBUG_PRINT(("QUEUE LENGTH %d = %d\n",id,qslength[id])); 
             fflush(stdout);
             pthread_mutex_unlock(&queuemutex[id]);
             pthread_mutex_unlock(&qslengthmutex[id]);
@@ -111,8 +136,8 @@ void * clockT(void *arg) {
             pthread_mutex_unlock(&updatelock);
         }
         else { 
-            printf("CLOCK %d CLOSED \n",id); 
-            if (sigquit==1) {
+            if (DEBUG) { DEBUG_PRINT(("CLOCK %d CLOSED \n",id)); fflush(stdout); }
+            if (sigquit==1 || sighup==1) {
                 pthread_mutex_lock(&updatelock);
                 pthread_cond_signal(&updatecond);
                 pthread_mutex_unlock(&updatelock);
@@ -128,7 +153,6 @@ void * clockT(void *arg) {
 
 void * customerT (void *arg) {
 
-    time_t          s,s2,s3,s4;  // Seconds
     struct timespec spec;
     struct timespec spec2;
     struct timespec spec3;
@@ -148,8 +172,7 @@ void * customerT (void *arg) {
     int check; //If chosen a valid queue
     int changequeue=0; //If the queue has been closed and need to change queue
     int change=0; //Controls if the customer is switching supermarket checkout or not
-    printf("Customer %d: joined the supermarket\n",id);
-    fflush(stdout);
+    if (DEBUG) { DEBUG_PRINT(("Customer %d: joined the supermarket\n",id)); fflush(stdout); }
 
     //Customer's buy time
     cs->nproducts=rand_r(&seed)%(cf->P); //Random number of products: 0<nproducts<=P
@@ -170,8 +193,8 @@ void * customerT (void *arg) {
             }while(check==0);
             if (sigquit!=1){
                 pthread_mutex_lock(&queuemutex[nqueue]);
-                if (change==0) printf("Customer %d: Entra in cassa --> %d\n",id,nqueue); //First time that the cs is in a queue
-                else { printf("Customer %d: CAMBIA E VA NELLA CASSAAAAAAAAAAAAAAAAAAAAAAAA --> %d\n",id,nqueue); cs->queuechecked++;}//Not the first time that the cs is in a queue
+                if (change==0) {if(DEBUG) { DEBUG_PRINT(("Customer %d: Entra in cassa --> %d\n",id,nqueue)); } cs->queuechecked=1; }//First time that the cs is in a queue
+                else { if(DEBUG) DEBUG_PRINT(("Customer %d: CAMBIA E VA NELLA CASSAAAAAAAAAAAAAAAAAAAAAAAA --> %d\n",id,nqueue)); cs->queuechecked++;}//Not the first time that the cs is in a queue
                 fflush(stdout);
 
                 clock_gettime(CLOCK_REALTIME, &spec3); //timestamp for calculating time waited in queue
@@ -179,13 +202,14 @@ void * customerT (void *arg) {
                 if((joinqueue(&qs[nqueue],&cs,nqueue))==-1){ //Joining the queue chosen
                     fprintf(stderr, "malloc failed\n");
                     exit(EXIT_FAILURE); 
-                } 
-                printf("ID %d: JOINING THE nqueue: %d\n", id,nqueue);
+                }
+                if(DEBUG) { DEBUG_PRINT(("ID %d: JOINING THE nqueue: %d\n", id,nqueue)); fflush(stdout); }
                 pthread_cond_signal(&smcond[nqueue]); //Signal to the queue to advice that a new customer is in queue
                 while ((cs->queuedone)==0 && changequeue==0){ //While the customer hasnt paid or needs to change queue 'cause it has been closed
                     pthread_cond_wait(&queuecond[nqueue],&queuemutex[nqueue]);
                     if (qs[nqueue]->queueopen==0) changequeue=1; //If the customer has been waken and he hasn't done the queue --> sm closed and changes the queue
                 }
+
                 //DA IMPLEMENTARE: SE SIGQUIT SETTATO -> THREAD EXIT 
                 pthread_mutex_unlock(&queuemutex[nqueue]);
                 change++;
@@ -195,43 +219,32 @@ void * customerT (void *arg) {
         clock_gettime(CLOCK_REALTIME, &spec4); //Get timestamp when customer has paid
         time4 = (spec4.tv_sec)*1000 + (spec4.tv_nsec) / 1000000;
     }
-
-    pthread_mutex_lock(&acmutex); 
-    customerexit++; //Number of customer that is waiting director permition
-    printf("CUSTOMER EXIIIIIIIIIIT: %d\n",customerexit); fflush(stdout);
-    pthread_mutex_unlock(&acmutex);
     
-    pthread_mutex_lock(&csexitmutex);
-    while (ncsexit==1) {pthread_cond_wait(&csexitcond,&csexitmutex);}
-    ncsexit=1;
-    pthread_mutex_unlock(&csexitmutex);
-
     pthread_mutex_lock(&okmutex);
+    if((joinqueue(&csexitq,&cs,-1))==-1){
+        fprintf(stderr,"malloc failed\n");
+    }
     pthread_cond_signal(&DirectorCond); //Signal to the director that someone wants to exit
-    while(exitok!=1) { pthread_cond_wait(&okcond,&okmutex);} //While director doesnt allow the exit --> wait
-    exitok=0;
-    pthread_cond_signal(&DirectorCond); //Signal to the director that someone wants to exit
-    pthread_mutex_lock(&csexitmutex);
-    ncsexit=0;
-    pthread_mutex_unlock(&csexitmutex);
-    pthread_mutex_unlock(&okmutex); 
-    
-    
-    printf("Customer %d: leaved the supermarket\n",id);
-    fflush(stdout);
-    
+    while(cs->exitok!=1) { pthread_cond_wait(&okcond,&okmutex);} //While director doesnt allow the exit --> wait
+    pthread_mutex_unlock(&okmutex);
+
+    if(DEBUG) { DEBUG_PRINT(("Customer %d: leaved the supermarket\n",id)); fflush(stdout); }
+
     clock_gettime(CLOCK_REALTIME, &spec2); //Timestamp of the exit from the supermarket
     time2 = (spec2.tv_sec)*1000 + (spec2.tv_nsec) / 1000000;
 
     cs->time=time2-time1; //Time passed in the supermarket
     cs->timeq=time4-time3; //Time passed in queue
-    //printcs(*cs);
+
+    pthread_mutex_lock(&filemutex);
+    fprintf(statsfile,"CUSTOMER -> | id customer:%d | n. bought products:%d | time in the supermarket: %d | time in queue: %d | n. queues checked: %d | \n",cs->id,cs->nproducts, cs->time, cs->timeq, cs->queuechecked);
+    pthread_mutex_unlock(&filemutex);
+
     return NULL; 
 }
 
 void * smcheckout(void *arg) {
 
-    time_t          s,s2;  // Seconds
     struct timespec spec;
     struct timespec spec2;
     long time1,time2;
@@ -255,7 +268,7 @@ void * smcheckout(void *arg) {
         exit(EXIT_FAILURE);
     }
     
-    printf("----------------------SUPERMARKET CHECKOUT %d OPENED!--------------------\n",id); fflush(stdout);
+    if(DEBUG) { DEBUG_PRINT(("----------------------SUPERMARKET CHECKOUT %d OPENED!--------------------\n",id)); fflush(stdout); }
     while(1){
         pthread_mutex_lock(&queuemutex[id]);
         while(queuelength(qs[id],id)==0 && exittime==0) { 
@@ -264,8 +277,10 @@ void * smcheckout(void *arg) {
             pthread_mutex_lock(&smexitmutex[id]);
             if (smexit[id]==1) exittime=1;
             pthread_mutex_unlock(&smexitmutex[id]);
-            if (exittime!=1) { printf("Cashier %d: Waiting customers\n",id); fflush(stdout); pthread_cond_wait(&smcond[id],&queuemutex[id]); }
-            
+            if (exittime!=1) { 
+                if (DEBUG) { DEBUG_PRINT(("Cashier %d: Waiting customers\n",id)); fflush(stdout); }
+                pthread_cond_wait(&smcond[id],&queuemutex[id]);
+            }
             if (sigquit==1) exittime=1;
             if (exitbroadcast==1) exittime=1;
             pthread_mutex_lock(&smexitmutex[id]);
@@ -274,10 +289,9 @@ void * smcheckout(void *arg) {
         } //Wait until the queue is empty or the queue has to close
         if (exittime!=1)
         {
-            printQueue(qs[id],id); 
+            if(DEBUG) printQueue(qs[id],id); 
             customer * qcs=removecustomer(&qs[id],id); //Serves the customer that is the first in the queue    
-            printf("Cashier %d: Serving customer: %d\n",id,qcs->id);
-            fflush(stdout);
+            if (DEBUG) { DEBUG_PRINT(("Cashier %d: Serving customer: %d\n",id,qcs->id)); fflush(stdout); }
             pthread_mutex_unlock(&queuemutex[id]);
             //Number of time to scan the product and let the customer pay
             while ((randomtime = rand_r(&seed) % 80)<20); //Random number of time interval: 20-80
@@ -287,19 +301,17 @@ void * smcheckout(void *arg) {
             nanosleep(&t,NULL); //Sleeping randomtime mseconds
 
             //Signal to the customer that the cashier has done
-            printf("Customer %d has paid!\n",qcs->id);
-            fflush(stdout);
+            if (DEBUG) { DEBUG_PRINT(("Customer %d has paid!\n",qcs->id)); fflush(stdout); }
             smdata->nproducts+=qcs->nproducts;
             smdata->ncustomers++;
             //printf("%f",((smdata->servicetime*smdata->ncustomers)+randomtime)/smdata->ncustomers++);
             //printf("%ld \n",randomtime);
             smdata->servicetime=smdata->servicetime+((randomtime-smdata->servicetime)/smdata->ncustomers);
-            printf("DATI CASSA %d: ", id); printsm(*smdata); fflush(stdout);
+            if (DEBUG) { DEBUG_PRINT(("CASHIER DATA %d: ", id)); printsm(*smdata); fflush(stdout); }
 
             qcs->queuedone=1;
             pthread_mutex_lock(&queuemutex[id]);
-            pthread_cond_signal(&queuecond[id]);
-            pthread_mutex_unlock(&queuemutex[id]);
+            pthread_cond_broadcast(&queuecond[id]);
 
             pthread_mutex_lock(&smexitmutex[id]);
             if (smexit[id]==1) exittime=1;
@@ -311,17 +323,16 @@ void * smcheckout(void *arg) {
             if (pthread_join(clock,NULL) == -1 ) {
                 fprintf(stderr,"DirectorSMControl: thread join, failed!");
             }
-            printf("--------------- SUPERMARKET CHECKOUT %d CLOSED ------------------\n",(id));
-            fflush(stdout);
+            if (DEBUG) { DEBUG_PRINT(("--------------- SUPERMARKET CHECKOUT %d CLOSED ------------------\n",(id))); fflush(stdout); }
             pthread_mutex_lock(&smexitmutex[id]);
             smexit[id]=0;
             pthread_mutex_unlock(&smexitmutex[id]);
 
             pthread_mutex_lock(&queuemutex[id]);
-            printQueue(qs[id],id);
+            if (DEBUG) printQueue(qs[id],id);
             pthread_cond_broadcast(&queuecond[id]);
             resetQueue(&qs[id],id);
-            printQueue(qs[id],id);
+            if (DEBUG) printQueue(qs[id],id);
             pthread_mutex_unlock(&queuemutex[id]);
 
             clock_gettime(CLOCK_REALTIME, &spec2);
@@ -330,13 +341,13 @@ void * smcheckout(void *arg) {
             smdata->nclosure++;
             return NULL;
         }
+        pthread_mutex_unlock(&queuemutex[id]);
     }
 }
 
 void * DirectorSMcontrol(void *arg) {
 
     pthread_t * smchecks;
-    supermarketcheckout * smdata = ((supermarketcheckout*)arg);
     int smopen=cf->smopen; //smcheckouts opened
 
     smchecks = malloc(cf->K*sizeof(pthread_t)); //Creating smopen threads
@@ -387,7 +398,7 @@ void * DirectorSMcontrol(void *arg) {
                     if (updatevariable[i]==1) counter1++; //Incrementing Number of cashier that have updated queue's length
                     pthread_mutex_unlock(&upvarlock[i]);
                 }
-                printf("QUEUEOPEN=%d , COUNTER=%d\n",queueopen,counter1); fflush(stdout);   
+                if(DEBUG) { DEBUG_PRINT(("QUEUEOPEN=%d , COUNTER=%d\n",queueopen,counter1)); fflush(stdout); } 
                 if (queueopen==counter1) check++; //If queueopen and number of cashier that have updated are equal -> Check if close or open a smcheckout
 
                 if (check!=0){ //Director checks the queues lengths to decide if close or open some sm checkouts
@@ -417,7 +428,6 @@ void * DirectorSMcontrol(void *arg) {
             counter=0; //Number of queues just closed
             j=0; //index to cicle
             if (check1>0 && smopen>1 && closeoropen==0){
-                fflush(stdout);
                 while(counter<(check1-cf->S1+1) && j<cf->K){ //While you doesnt have closed the right number of sm checkouts
                     pthread_mutex_lock(&qslengthmutex[j]);
                     pthread_mutex_lock(&queuemutex[j]);
@@ -439,14 +449,14 @@ void * DirectorSMcontrol(void *arg) {
                 index=-1;
                 for (int i=0;i<cf->K;i++){
                     pthread_mutex_lock(&queuemutex[i]);
-                    printf("%d \n",qs[i]->queueopen);
+                    if (DEBUG) { DEBUG_PRINT(("%d \n",qs[i]->queueopen)); fflush(stdout); }
                     pthread_mutex_lock(&smexitmutex[i]);
                     if(qs[i]->queueopen==0 && index==-1 && smexit[i]!=1) { index=i; } //if the ith queue matches the codntions to open take the index
                     pthread_mutex_unlock(&smexitmutex[i]);
                     pthread_mutex_unlock(&queuemutex[i]);
                 }
                 if (index!=-1) {
-                    printf("INDEXXXXXXXXX:%d\n",index); fflush(stdout);
+                    if (DEBUG) { DEBUG_PRINT(("INDEXXXXXXXXX:%d\n",index)); fflush(stdout); }
                     pthread_mutex_lock(&queuemutex[index]);
                     qs[index]->queueopen=1; //Set queue open
                     pthread_mutex_unlock(&queuemutex[index]);
@@ -460,7 +470,6 @@ void * DirectorSMcontrol(void *arg) {
             if(closeoropen==0) closeoropen=1; else closeoropen=0; 
         }
     }
-    printf("SM CONTROL TERMINATED AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n");
 
     if (sigquit==1) {
         for (int i=0;i<cf->K;i++) { //To wake up cashiers in case of a SIGQUIT and they are in wait
@@ -475,7 +484,9 @@ void * DirectorSMcontrol(void *arg) {
             fprintf(stderr,"SMcheckout: thread join, failed!");
         }
     }
-    printf("TERMINATE TUTTE LE CASSEEEEEEEEEEEEEEEEEEE");
+    if (DEBUG) { DEBUG_PRINT(("ALL CASHIER TERMINATED\n")); fflush(stdout); }
+
+    if (DEBUG) { DEBUG_PRINT(("SM CONTROL TERMINATED\n")); fflush(stdout); }
     return NULL;
 }
 
@@ -506,18 +517,14 @@ void * DirectorCustomersControl (void *arg){
     //Da implementare: caso di SIGHUP
     while(activecustomers!=0){
         pthread_mutex_lock(&okmutex); 
-        while (activecustomers!=0) { 
-           pthread_mutex_lock(&acmutex);
-           if(customerexit==0) {pthread_mutex_unlock(&acmutex); pthread_cond_wait(&DirectorCond,&okmutex); pthread_mutex_lock(&acmutex);} //Get waken when a customer wants to get out of the supermarket 
-           customerexit--;
-           pthread_mutex_unlock(&acmutex);
+        while (activecustomers!=0) {
+           if(queuelength(csexitq,-1)==0) pthread_cond_wait(&DirectorCond,&okmutex); //Get waken when a customer wants to get out of the supermarket 
            //Say to the customer that can exit
-           exitok=1;
-           pthread_cond_signal(&okcond);
-           while(exitok==1) pthread_cond_wait(&DirectorCond,&okmutex);
+           customer * qcs = removecustomer(&csexitq,-1);
+           qcs->exitok=1;
            activecustomers--;
-           printf("ACTIVE CUSTOMERSSSSSSSSS: %d\n",activecustomers);
-           fflush(stdout);
+           pthread_cond_signal(&okcond);
+           if (DEBUG) { DEBUG_PRINT(("ACTIVE CUSTOMERS: %d\n",activecustomers)); fflush(stdout); }
            if (activecustomers==0) {
                for (int i=0;i<cf->K;i++) {
                     pthread_mutex_lock(&queuemutex[i]);
@@ -526,7 +533,7 @@ void * DirectorCustomersControl (void *arg){
                     pthread_mutex_unlock(&queuemutex[i]);
                }   
            }
-           if(activecustomers==(cf->C-cf->E)) break;
+           if(activecustomers==(cf->C-cf->E) && sighup!=1 && sigquit!=1) break;
         }
         pthread_mutex_unlock(&okmutex);
 
@@ -538,7 +545,7 @@ void * DirectorCustomersControl (void *arg){
                 exit(EXIT_FAILURE);
             }
             j=customerscreated;
-            printf("MALLOCSIZE:%d\n",mallocsize);
+            if (DEBUG) { DEBUG_PRINT(("MALLOCSIZE:%d\n",mallocsize)); fflush(stdout); }
             for(i=0;i<cf->E;i++){
                 if (pthread_create(&cs[j+i],NULL,customerT,(void*) (intptr_t) i+j)!=0) {
                     fprintf(stderr,"customerT %d: thread creation, failed!",j+i);
@@ -555,7 +562,8 @@ void * DirectorCustomersControl (void *arg){
             fprintf(stderr,"DirectorSMControl: thread join, failed!");
         }
     }
-    printf("TERMINATI TUTTI I CLIENTIIIIIIIIIIIIIIII");
+
+    if (DEBUG) { DEBUG_PRINT(("ALL CUSTOMERS THREAD TERMINATED \n")); fflush(stdout); }
     free(cs);
     return NULL;
 }
@@ -566,8 +574,7 @@ void * directorT(void *arg) {
     
     //Creating subthread of director that manages the supermarket checkouts
     pthread_t DirectorSM;
-    void *csdata;
-    
+
     if (pthread_create(&DirectorSM,NULL,DirectorSMcontrol, (void*) arg)) {
         fprintf(stderr,"DirectorSMcontrol: thread creation, failed!");
         exit(EXIT_FAILURE);
@@ -591,7 +598,7 @@ void * directorT(void *arg) {
             fprintf(stderr,"DirectorSMControl: thread join, failed!");
     }
     //JOIN'S END
-    printf("TERMINATO DIRETTOREEEEEEEEEEEEEE");
+    if (DEBUG) { DEBUG_PRINT(("DIRECTOR TERMINATED \n")); fflush(stdout); }
     //Free heap memory used!
     return NULL;
     //return (void*) csdata;
@@ -608,7 +615,7 @@ int main(int argc, char const *argv[])
         exit(EXIT_FAILURE);
     }
 
-    if (strcmp(argv[1],"test.txt")==0){
+    if (strcmp(argv[1],"testfile/test.txt")==0){
         //Parameter's configure
         if ((cf=test(argv[1]))==NULL){
             exit(EXIT_FAILURE);
@@ -642,6 +649,13 @@ int main(int argc, char const *argv[])
         fprintf(stderr,"Handler error");
     }
 
+
+    if ((statsfile = fopen("statsfile.log", "wb")) == NULL) { 
+	fprintf(stderr, "Stats file opening failed");
+	exit(EXIT_FAILURE);
+    }
+
+
     //Creating director thread
     pthread_t director;
 
@@ -653,11 +667,15 @@ int main(int argc, char const *argv[])
     if (pthread_join(director,NULL) == -1 ) {
             fprintf(stderr,"Director thread join, failed!");
         }
-    printf("FINE PROGRAMMAAAAAAAAAAAAAAAAAAAAAA");
-    for (int i=0;i<cf->K;i++) printsm(smdata[i]);
 
+    for (int i=0;i<cf->K;i++) {
+        fprintf(statsfile, "CASHIER -> | id:%d | n. bought products:%d | n. customers:%d | time opened: %d | avg service time: %f | number of clousure:%d |\n",smdata[i].id, smdata[i].nproducts, smdata[i].ncustomers, smdata[i].time, smdata[i].servicetime, smdata[i].nclosure);
+    }
 
-    free(smdata); QueueFree();
+    printf("PROGRAM FINISHED\n");
+    
+
+    fclose(statsfile); free(smdata); QueueFree(); 
     return 0;
 }
 
@@ -695,6 +713,14 @@ void CreateQueueManagement(){
             exit(EXIT_FAILURE);                   
         }
     }
+
+    if ((csexitq=(queue*) malloc(sizeof(queue)))==NULL) {
+        fprintf(stderr, "malloc failed\n");
+        exit(EXIT_FAILURE);  
+    }
+    for (int i=0;i<cf->K; i++) {csexitq=createqueues(-1);}
+
+
 
     if((smcond=malloc(cf->K*sizeof(pthread_cond_t)))==NULL){
         fprintf(stderr, "malloc failed\n");
@@ -783,4 +809,95 @@ void QueueFree(){
     free(upvarlock);
 }
 
+void setupsm(supermarketcheckout * sm, int i) {
+    sm->id = (i+1);
+    sm->nproducts=0;
+    sm->ncustomers=0;
+    sm->time=0;
+    sm->servicetime=0;
+    sm->nclosure=0;   
+}
 
+void printsm(supermarketcheckout sm) {
+    printf("%d %d %d %d %f %d\n",sm.id,sm.nproducts,sm.ncustomers,sm.time,sm.servicetime,sm.nclosure);
+}
+
+
+int confcheck(config * cf) {
+    if (!(cf->P>=0 && cf->T>10 && cf->K>0 && (cf->E>0 && cf->E<cf->C) && cf->C>1 && cf->S1>0  && cf->S1<cf->S2 && cf->smopen>0 && cf->smopen<=cf->K && cf->directornews>0)){
+        fprintf(stderr,"conf not valid, constraints: P>=0, T>10, K>1, 0<E<C, C>1, min<=max\n");
+        return -1;
+    }
+    else return 1;
+}
+
+config * test(const char* configfile) {
+    int control,i=0,j;
+    config * cf;
+    FILE *fd=NULL;
+    char *buffer;
+    char *cpy;
+
+    if ((fd=fopen(configfile, "r")) == NULL) {
+        fclose(fd);
+	    return NULL;
+    }
+
+    if ((cf=malloc(sizeof(config))) == NULL) {
+        fclose(fd); free(cf);
+	    return NULL;    
+    }
+
+    if ((buffer=malloc(MAX_LEN*sizeof(char))) == NULL) {
+         fclose(fd); free(cf); free(buffer);
+         return NULL;
+    }
+
+    while(fgets(buffer, MAX_LEN, fd) != NULL) {
+        j=0;
+        cpy=buffer;
+        while(*buffer!='=') { buffer++; j++;}
+        buffer++;
+        switch (i)
+        {
+            case 0: cf->K=atoi(buffer);
+                break;
+            case 1: cf->C=atoi(buffer);
+                break;
+            case 2: cf->E=atoi(buffer);
+                break;
+            case 3: cf->T=atoi(buffer);
+                break;
+            case 4: cf->P=atoi(buffer);
+                break;
+            case 5: cf->S=atoi(buffer);
+                break;
+            case 6: cf->S1=atoi(buffer);
+                break;
+            case 7: cf->S2=atoi(buffer);
+                break;
+            case 8: cf->smopen=atoi(buffer);
+                break;
+            case 9: cf->directornews=atoi(buffer);
+                break;
+
+            default:
+                break;
+        }
+        i++;
+        buffer=cpy;
+    }
+
+    if ((control=confcheck(cf))==-1) {
+        fclose(fd); free(cf); free(buffer);
+        return NULL;
+    }
+    free(buffer);
+    fclose(fd); 
+    
+    return cf;
+}
+
+void printconf(config configvalues) {
+    printf("%d %d %d %d %d %d %d %d %d %d\n", configvalues.K, configvalues.C, configvalues.E, configvalues.T, configvalues.P, configvalues.S, configvalues.S1, configvalues.S2, configvalues.smopen, configvalues.directornews);
+}
