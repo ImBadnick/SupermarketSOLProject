@@ -5,22 +5,20 @@ INCDIR		= ./include
 TESTDIR 	= ./testfile
 DEBUG 		= -DDEBUG
 
-
-ObjFlags = -c -fPIC -I./include/ -o
 TESTFILE = test.txt
 
-.PHONY: test1 clean debug
+.PHONY: test1 clean
 
 all: ./supermarket
 
 ./supermarket: ./supermarket.c
-	$(CC) $(DEBUG) ./supermarket.c $(CFLAGS) -o $@ 
+	$(CC) ./supermarket.c $(CFLAGS) -o $@ 
 
 test:
-	@(./supermarket testfile/test.txt & echo $$! > supermarket.PID)
-	@sleep 2s
-	@kill -3 $$(cat supermarket.PID)
-	@./analisi.sh
+	(./supermarket testfile/config.txt & echo $$! > supermarket.PID) &
+	sleep 25s; \
+	kill -1 $$(cat supermarket.PID); \
+	./analisi.sh $$(cat supermarket.PID); \
 	
 clean:
 	rm ./supermarket

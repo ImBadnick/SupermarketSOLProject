@@ -26,6 +26,7 @@ typedef struct supermarketcheckout {
     int time;
     float servicetime;
     int nclosure;
+    long randomtime;
 }supermarketcheckout;
 
 void setupsm(supermarketcheckout * sm, int i);
@@ -53,6 +54,7 @@ static pthread_mutex_t * queuemutex; //Lock on queues
 static pthread_cond_t * queuecond; //Condition variable on queues
 static pthread_cond_t * smcond; //Used to wake up a cashier when there is some one in queue
 
+//Queue closing control
 static pthread_mutex_t * smexitmutex; //Mutex on the variable "smexit" to control the close of a queue (0=Director is not closing the queue, 1=Director is closing the queue)
 
 //DirectorOK 
@@ -76,11 +78,11 @@ static config * cf; //Program configuration
 static queue ** qs; //Queues
 static queue * csexitq;
 static int * qslength; //Array that contains queue's length
-static int * smexit;
+static int * smexit; //Array that contains if the queue is going to be closed or not
 static int * updatevariable; //Used to update the director from cashier!
-static int exitbroadcast=0;
+static int exitbroadcast=0; //Used when activecustomers are = 0 to send a signal to cashier in case of a SIGHUP
 static long t; //TIME
-static FILE* statsfile;
+static FILE* statsfile; //File containing stats of the execution
 
 volatile sig_atomic_t sighup=0;
 volatile sig_atomic_t sigquit=0;
@@ -106,7 +108,7 @@ void * clockT(void *arg) {
         if (smexit[id]==1) exittime=1;
         pthread_mutex_unlock(&smexitmutex[id]);
         if (exittime!=1) {
-            struct timespec t={(cf->directornews/1000),((cf->directornews%1000)*1000000)};
+            struct timespec t={(cf->directornews/1000),((cf->directornews%1000)*1000000)}; //Wait cf->director ms to update the director
             nanosleep(&t,NULL); //Sleeping randomtime mseconds
         }
         pthread_mutex_lock(&smexitmutex[id]);
@@ -117,7 +119,7 @@ void * clockT(void *arg) {
             if(DEBUG) { DEBUG_PRINT(("%d UPDATINGGGGGGGGGGGGGGGGGGGGGGGGGGGG \n",id)); fflush(stdout); }
             pthread_mutex_lock(&qslengthmutex[id]);
             pthread_mutex_lock(&queuemutex[id]);
-            qslength[id]=queuelength(qs[id],id);
+            qslength[id]=queuelength(qs[id],id); //Update queue length 
             if(DEBUG) DEBUG_PRINT(("QUEUE LENGTH %d = %d\n",id,qslength[id])); 
             fflush(stdout);
             pthread_mutex_unlock(&queuemutex[id]);
@@ -125,12 +127,12 @@ void * clockT(void *arg) {
 
             pthread_mutex_lock(&updatelock);
             pthread_mutex_lock(&upvarlock[id]);
-            updatevariable[id]=1;
+            updatevariable[id]=1; //To warn the director that the cashier "id" has updated the queue's length info
             pthread_mutex_unlock(&upvarlock[id]);
             
             pthread_mutex_lock(&smexitmutex[id]);
             if (smexit[id]==1) exittime=1;
-            if (exittime!=1) pthread_cond_signal(&updatecond);
+            if (exittime!=1) pthread_cond_signal(&updatecond); //Wake up the director
             pthread_mutex_unlock(&smexitmutex[id]);
             
             pthread_mutex_unlock(&updatelock);
@@ -139,7 +141,7 @@ void * clockT(void *arg) {
             if (DEBUG) { DEBUG_PRINT(("CLOCK %d CLOSED \n",id)); fflush(stdout); }
             if (sigquit==1 || sighup==1) {
                 pthread_mutex_lock(&updatelock);
-                pthread_cond_signal(&updatecond);
+                pthread_cond_signal(&updatecond); //Wake up the thread that controls the sm checkouts to make it exit
                 pthread_mutex_unlock(&updatelock);
             }
             pthread_exit(NULL); 
@@ -157,7 +159,7 @@ void * customerT (void *arg) {
     struct timespec spec2;
     struct timespec spec3;
     struct timespec spec4;
-    long time1,time2,time3,time4;
+    long time1,time2,time3=-1,time4=-1;
 
     clock_gettime(CLOCK_REALTIME, &spec); //Timestamp when customer enters the supermarket
     time1 = (spec.tv_sec)*1000 + (spec.tv_nsec) / 1000000;
@@ -176,11 +178,10 @@ void * customerT (void *arg) {
 
     //Customer's buy time
     cs->nproducts=rand_r(&seed)%(cf->P); //Random number of products: 0<nproducts<=P
+    while ((randomtime = rand_r(&seed) % (cf->T))<10); //Random number of buy time
+    struct timespec t={(randomtime/1000),((randomtime%1000)*1000000)};
+    nanosleep(&t,NULL); //Sleeping randomtime mseconds
     if ((cs->nproducts)!=0){
-        while ((randomtime = rand_r(&seed) % (cf->T))<10); //Random number of buy time
-        struct timespec t={(randomtime/1000),((randomtime%1000)*1000000)};
-        nanosleep(&t,NULL); //Sleeping randomtime mseconds
-    
         do{
             changequeue=0; //Reset change queue value
             check=0; 
@@ -204,7 +205,7 @@ void * customerT (void *arg) {
                     exit(EXIT_FAILURE); 
                 }
                 if(DEBUG) { DEBUG_PRINT(("ID %d: JOINING THE nqueue: %d\n", id,nqueue)); fflush(stdout); }
-                pthread_cond_signal(&smcond[nqueue]); //Signal to the queue to advice that a new customer is in queue
+                pthread_cond_signal(&smcond[nqueue]); //Signal to the queue to warn that a new customer is in queue
                 while ((cs->queuedone)==0 && changequeue==0){ //While the customer hasnt paid or needs to change queue 'cause it has been closed
                     pthread_cond_wait(&queuecond[nqueue],&queuemutex[nqueue]);
                     if (qs[nqueue]->queueopen==0) changequeue=1; //If the customer has been waken and he hasn't done the queue --> sm closed and changes the queue
@@ -216,7 +217,7 @@ void * customerT (void *arg) {
             }
             else break;
         }while(cs->queuedone==0);   
-        clock_gettime(CLOCK_REALTIME, &spec4); //Get timestamp when customer has paid
+        if (time3!=-1)clock_gettime(CLOCK_REALTIME, &spec4); //Get timestamp when customer has paid
         time4 = (spec4.tv_sec)*1000 + (spec4.tv_nsec) / 1000000;
     }
     
@@ -230,14 +231,15 @@ void * customerT (void *arg) {
 
     if(DEBUG) { DEBUG_PRINT(("Customer %d: leaved the supermarket\n",id)); fflush(stdout); }
 
+    if (cs->queuedone!=1) cs->nproducts=0;
+
     clock_gettime(CLOCK_REALTIME, &spec2); //Timestamp of the exit from the supermarket
     time2 = (spec2.tv_sec)*1000 + (spec2.tv_nsec) / 1000000;
-
     cs->time=time2-time1; //Time passed in the supermarket
-    cs->timeq=time4-time3; //Time passed in queue
+    if (time3!=-1 && time4!=-1) cs->timeq=time4-time3; //Time passed in queue
 
     pthread_mutex_lock(&filemutex);
-    fprintf(statsfile,"CUSTOMER -> | id customer:%d | n. bought products:%d | time in the supermarket: %d | time in queue: %d | n. queues checked: %d | \n",cs->id,cs->nproducts, cs->time, cs->timeq, cs->queuechecked);
+    fprintf(statsfile,"CUSTOMER -> | id customer:%d | n. bought products:%d | time in the supermarket: %0.3f s | time in queue: %0.3f s | n. queues checked: %d | \n",cs->id,cs->nproducts, (double) cs->time/1000, (double) cs->timeq/1000, cs->queuechecked);
     pthread_mutex_unlock(&filemutex);
 
     return NULL; 
@@ -255,12 +257,18 @@ void * smcheckout(void *arg) {
     supermarketcheckout * smdata=((supermarketcheckout*)arg);
     int id = smdata->id-1;
     unsigned int seed=smdata->id+t; //Creating seed
-    long randomtime;
+    long randomtime,servicetime;
     int exittime=0; //If the cashier has to close the smcheckout
 
     pthread_mutex_lock(&queuemutex[id]);
     qs[id]->queueopen=1;
     pthread_mutex_unlock(&queuemutex[id]);
+
+    if (smdata->randomtime==0) {
+        while ((randomtime = rand_r(&seed) % 80)<20); //Random number of time interval: 20-80
+        smdata->randomtime=randomtime;
+    }
+    
     
     pthread_t clock; 
     if (pthread_create(&clock,NULL,clockT,(void*) (intptr_t) (id))!=0) {
@@ -294,19 +302,18 @@ void * smcheckout(void *arg) {
             if (DEBUG) { DEBUG_PRINT(("Cashier %d: Serving customer: %d\n",id,qcs->id)); fflush(stdout); }
             pthread_mutex_unlock(&queuemutex[id]);
             //Number of time to scan the product and let the customer pay
-            while ((randomtime = rand_r(&seed) % 80)<20); //Random number of time interval: 20-80
-
-            randomtime=randomtime+(cf->S*qcs->nproducts);
-            struct timespec t={(randomtime/1000),((randomtime%1000)*1000000)};
+            
+            servicetime=smdata->randomtime+(cf->S*qcs->nproducts);
+            struct timespec t={(servicetime/1000),((servicetime%1000)*1000000)};
             nanosleep(&t,NULL); //Sleeping randomtime mseconds
 
             //Signal to the customer that the cashier has done
             if (DEBUG) { DEBUG_PRINT(("Customer %d has paid!\n",qcs->id)); fflush(stdout); }
             smdata->nproducts+=qcs->nproducts;
             smdata->ncustomers++;
-            //printf("%f",((smdata->servicetime*smdata->ncustomers)+randomtime)/smdata->ncustomers++);
-            //printf("%ld \n",randomtime);
-            smdata->servicetime=smdata->servicetime+((randomtime-smdata->servicetime)/smdata->ncustomers);
+            //printf("%f",((smdata->servicetime*smdata->ncustomers)+servicetime)/smdata->ncustomers++);
+            //printf("%ld \n",servicetime);
+            smdata->servicetime=smdata->servicetime+((servicetime-(smdata->servicetime))/smdata->ncustomers);
             if (DEBUG) { DEBUG_PRINT(("CASHIER DATA %d: ", id)); printsm(*smdata); fflush(stdout); }
 
             qcs->queuedone=1;
@@ -609,13 +616,14 @@ int main(int argc, char const *argv[])
     supermarketcheckout * smdata;
     struct sigaction s;
     t=time(NULL);
+    long totalcustomers=0, totalproducts=0;
 
     if (argc!=2) {
         fprintf(stderr,"usa: %s test\n",argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    if (strcmp(argv[1],"testfile/test.txt")==0){
+    if (strcmp(argv[1],"testfile/config.txt")==0){
         //Parameter's configure
         if ((cf=test(argv[1]))==NULL){
             exit(EXIT_FAILURE);
@@ -650,7 +658,7 @@ int main(int argc, char const *argv[])
     }
 
 
-    if ((statsfile = fopen("statsfile.log", "wb")) == NULL) { 
+    if ((statsfile = fopen("statsfile.log", "w")) == NULL) { 
 	fprintf(stderr, "Stats file opening failed");
 	exit(EXIT_FAILURE);
     }
@@ -669,8 +677,13 @@ int main(int argc, char const *argv[])
         }
 
     for (int i=0;i<cf->K;i++) {
-        fprintf(statsfile, "CASHIER -> | id:%d | n. bought products:%d | n. customers:%d | time opened: %d | avg service time: %f | number of clousure:%d |\n",smdata[i].id, smdata[i].nproducts, smdata[i].ncustomers, smdata[i].time, smdata[i].servicetime, smdata[i].nclosure);
+        fprintf(statsfile, "CASHIER -> | id:%d | n. bought products:%d | n. customers:%d | time opened: %0.3f s | avg service time: %0.3f s | number of clousure:%d |\n",smdata[i].id, smdata[i].nproducts, smdata[i].ncustomers, (double) smdata[i].time/1000, smdata[i].servicetime/1000, smdata[i].nclosure);
+        totalcustomers+=smdata[i].ncustomers;
+        totalproducts+=smdata[i].nproducts;
     }
+
+    fprintf(statsfile, "TOTAL CUSTOMERS SERVED: %ld\n",totalcustomers);
+    fprintf(statsfile, "TOTAL PRODUCTS BOUGHT: %ld\n", totalproducts);
 
     printf("PROGRAM FINISHED\n");
     
@@ -815,7 +828,8 @@ void setupsm(supermarketcheckout * sm, int i) {
     sm->ncustomers=0;
     sm->time=0;
     sm->servicetime=0;
-    sm->nclosure=0;   
+    sm->nclosure=0; 
+    sm->randomtime=0;  
 }
 
 void printsm(supermarketcheckout sm) {
@@ -901,3 +915,5 @@ config * test(const char* configfile) {
 void printconf(config configvalues) {
     printf("%d %d %d %d %d %d %d %d %d %d\n", configvalues.K, configvalues.C, configvalues.E, configvalues.T, configvalues.P, configvalues.S, configvalues.S1, configvalues.S2, configvalues.smopen, configvalues.directornews);
 }
+
+
