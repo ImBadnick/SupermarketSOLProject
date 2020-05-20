@@ -21,7 +21,5 @@ test:
 	./analisi.sh $$(cat supermarket.PID); \
 	
 clean:
-	rm ./supermarket
-	rm ./statsfile.log
-	rm supermarket.PID
+	rm -f ./supermarket ./statsfile.log supermarket.PID
 

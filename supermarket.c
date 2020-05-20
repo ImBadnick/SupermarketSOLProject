@@ -27,6 +27,7 @@ typedef struct supermarketcheckout {
     float servicetime;
     int nclosure;
     long randomtime;
+    int hasbeenopened;
 }supermarketcheckout;
 
 void setupsm(supermarketcheckout * sm, int i);
@@ -242,10 +243,11 @@ void * customerT (void *arg) {
     fprintf(statsfile,"CUSTOMER -> | id customer:%d | n. bought products:%d | time in the supermarket: %0.3f s | time in queue: %0.3f s | n. queues checked: %d | \n",cs->id,cs->nproducts, (double) cs->time/1000, (double) cs->timeq/1000, cs->queuechecked);
     pthread_mutex_unlock(&filemutex);
 
+    free(cs);
     return NULL; 
 }
 
-void * smcheckout(void *arg) {
+void * smcheckout(void *arg) { //Cashiers 
 
     struct timespec spec;
     struct timespec spec2;
@@ -255,6 +257,7 @@ void * smcheckout(void *arg) {
     time1 = (spec.tv_sec)*1000 + (spec.tv_nsec) / 1000000;
 
     supermarketcheckout * smdata=((supermarketcheckout*)arg);
+    smdata->hasbeenopened=1;
     int id = smdata->id-1;
     unsigned int seed=smdata->id+t; //Creating seed
     long randomtime,servicetime;
@@ -487,13 +490,18 @@ void * DirectorSMcontrol(void *arg) {
     }
 
     for (int i=0;i<cf->K;i++){
-        if (pthread_join(smchecks[i],NULL) == -1 ) {
-            fprintf(stderr,"SMcheckout: thread join, failed!");
-        }
+        if(((supermarketcheckout*)arg)[i].hasbeenopened==1) {
+            if (pthread_join(smchecks[i],NULL) == -1 ) {
+                fprintf(stderr,"SMcheckout: thread join, failed!");
+            }
+        } 
     }
+
     if (DEBUG) { DEBUG_PRINT(("ALL CASHIER TERMINATED\n")); fflush(stdout); }
 
     if (DEBUG) { DEBUG_PRINT(("SM CONTROL TERMINATED\n")); fflush(stdout); }
+
+    free(smchecks);
     return NULL;
 }
 
@@ -688,7 +696,7 @@ int main(int argc, char const *argv[])
     printf("PROGRAM FINISHED\n");
     
 
-    fclose(statsfile); free(smdata); QueueFree(); 
+    fclose(statsfile); free(smdata); QueueFree(); free(cf);
     return 0;
 }
 
@@ -726,14 +734,8 @@ void CreateQueueManagement(){
             exit(EXIT_FAILURE);                   
         }
     }
-
-    if ((csexitq=(queue*) malloc(sizeof(queue)))==NULL) {
-        fprintf(stderr, "malloc failed\n");
-        exit(EXIT_FAILURE);  
-    }
-    for (int i=0;i<cf->K; i++) {csexitq=createqueues(-1);}
-
-
+    
+    csexitq=createqueues(-1);
 
     if((smcond=malloc(cf->K*sizeof(pthread_cond_t)))==NULL){
         fprintf(stderr, "malloc failed\n");
@@ -817,7 +819,9 @@ void CreateQueueManagement(){
 
 void QueueFree(){
 
-    free(qs); free(queuemutex); free(queuecond); free(smcond); free(qslengthmutex);
+    for (int i=0;i<cf->K; i++) free(qs[i]);
+    free(qs); 
+    free(queuemutex); free(queuecond); free(smcond); free(csexitq); free(qslengthmutex);
     free(qslengthcond); free(qslength); free(smexitmutex); free(smexit); free(updatevariable);
     free(upvarlock);
 }
@@ -829,7 +833,8 @@ void setupsm(supermarketcheckout * sm, int i) {
     sm->time=0;
     sm->servicetime=0;
     sm->nclosure=0; 
-    sm->randomtime=0;  
+    sm->randomtime=0; 
+    sm->hasbeenopened=0; 
 }
 
 void printsm(supermarketcheckout sm) {
