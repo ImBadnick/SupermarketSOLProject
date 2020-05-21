@@ -97,7 +97,8 @@ static void handler (int signum) {
 if (signum==1) sighup=1;
 if (signum==3) sigquit=1;
 
-printf("Ricevuto segnale %d\n",signum); fflush(stdout);
+printf("Signal Recived: %d\n",signum); fflush(stdout);
+printf("Supermarket is closing!\n");
 }
 
 
@@ -627,7 +628,7 @@ int main(int argc, char const *argv[])
     long totalcustomers=0, totalproducts=0;
 
     if (argc!=2) {
-        fprintf(stderr,"usa: %s test\n",argv[0]);
+        fprintf(stderr,"use: %s /testfile/config.txt \n",argv[0]);
         exit(EXIT_FAILURE);
     }
 
@@ -638,7 +639,7 @@ int main(int argc, char const *argv[])
         }
     }
     else {
-        fprintf(stderr,"%s: The argoument needs to be -> test\n",argv[0]);
+        fprintf(stderr,"%s: You need to insert the config file as argoument: /testfile/config.txt \n",argv[0]);
         exit(EXIT_FAILURE);
     }
 
@@ -843,8 +844,8 @@ void printsm(supermarketcheckout sm) {
 
 
 int confcheck(config * cf) {
-    if (!(cf->P>=0 && cf->T>10 && cf->K>0 && (cf->E>0 && cf->E<cf->C) && cf->C>1 && cf->S1>0  && cf->S1<cf->S2 && cf->smopen>0 && cf->smopen<=cf->K && cf->directornews>0)){
-        fprintf(stderr,"conf not valid, constraints: P>=0, T>10, K>1, 0<E<C, C>1, min<=max\n");
+    if (!(cf->P>=0 && cf->T>10 && cf->K>0 && cf->S>0 && (cf->E>0 && cf->E<cf->C) && cf->C>1 && cf->S1>0  && cf->S2>0 && cf->S1<cf->S2 && cf->smopen>0 && cf->smopen<=cf->K && cf->directornews>cf->T)){
+        fprintf(stderr,"conf not valid, constraints: P>=0, T>10, K>0, S>0, 0<E<C, C>1, S1>0, S1<S2, smopen>0, smopen<=K, directornews>T \n");
         return -1;
     }
     else return 1;
