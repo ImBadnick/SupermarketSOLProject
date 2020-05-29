@@ -18,6 +18,7 @@ test:
 	(./supermarket testfile/config.txt & echo $$! > supermarket.PID) &
 	sleep 25s; \
 	kill -1 $$(cat supermarket.PID); \
+	chmod +x ./analisi.sh 
 	./analisi.sh $$(cat supermarket.PID); \
 	
 clean:
