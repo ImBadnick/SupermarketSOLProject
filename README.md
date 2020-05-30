@@ -11,7 +11,7 @@ To modify config parameters -> Modify the ./testfile/config.txt
 
 config parameters:
 K -> Number of supermarket checkouts
-C -> Number of max customers in the supermarket
+C -> Number of max customers in the supermarket initially
 E -> Number of customers that need to exit before make enter other E customers
 T -> Min time for customers to buy
 P -> Number of max products for each customers
